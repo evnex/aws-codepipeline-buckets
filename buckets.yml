@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Bucket for CodePipeline
+
+Parameters:
+
+  UseExistingKMSKey:
+    Type: String
+    Description: >-
+      If you are using an existing KMS Key,
+      set this to true
+    AllowedValues:
+      - true
+      - false
+
+  KMSKeyARN:
+    Type: String
+    Description: >-
+      If you are using an existing KMS Key, enter
+      the ARN of the Key here
+    Default: none
+
+  OrganisationBucket:
+    Type: String
+    Description: >-
+      If you need Organization-wide access to the
+      Bucket, set this to true
+    AllowedValues:
+      - true
+      - false
+
+  OrganisationID:
+    Type: String
+    Description: >-
+      If you need Organization-wide access to the
+      Bucket, set this to the Organization ID
+    Default: none
+
+  CrossAccountBucket:
+    Type: String
+    Description: >-
+      If you need cross-account access additional
+      or instead of Organization access, set this to true
+    AllowedValues:
+      - true
+      - false
+  
+  CrossAccountPrincipals:
+    Type: List<String>
+    Description: >-
+      If you need cross-account access, define a list of 
+      IAM Principal ARNs for the Bucket Policy
+    Default: none
+
+Conditions:
+
+  UseExistingKMSKey:
+    !Equals
+      - !Ref UseExistingKMSKey
+      - true
+
+  RequiresBucketPolicy:
+    !Or
+      - !Equals
+        - !Ref OrganisationBucket
+        - true
+      - !Equals
+        - !Ref OrganisationBucket
+        - true
+  
+  IsOrganisationBucket:
+    !Equals
+      - !Ref OrganisationBucket
+      - true
+
+  IsCrossAccountBucket:
+    !Equals
+      - !Ref CrossAccountBucket
+      - true
+
+Resources:
+
+  PipelineBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        !If
+          - UseExistingKMSKey
+          - ServerSideEncryptionConfiguration:
+              - ServerSideEncryptionByDefault:
+                  KMSMasterKeyID: !Ref KMSKeyARN
+                  SSEAlgorithm: aws:kms
+          - !Ref AWS::NoValue
+
+  PipelineBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: RequiresBucketPolicy
+    Properties:
+      Bucket: !Ref PipelineBucket
+      PolicyDocument:
+        Statement:
+          - !If
+            - IsOrganisationBucket
+            - Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+              Effect: Allow
+              Resource:
+                - !Sub arn:aws:s3:::${PipelineBucket}/*
+                - !Sub arn:aws:s3:::${PipelineBucket}
+              Principal: '*'
+              Condition:
+                StringEquals:
+                  aws:PrincipalOrgID: !Ref OrganisationID
+            - !Ref AWS::NoValue
+          - !If
+            - IsCrossAccountBucket
+            - Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+              Effect: Allow
+              Resource:
+                - !Sub arn:aws:s3:::${PipelineBucket}/*
+                - !Sub arn:aws:s3:::${PipelineBucket}
+              Principal: !Ref CrossAccountPrincipals
+            - !Ref AWS::NoValue
+
+Outputs:
+
+  PipelineBucket:
+    Value: !Ref PipelineBucket
+
+  PipelineBucketPolicy:
+    Condition: RequiresBucketPolicy
+    Value: !Ref PipelineBucketPolicy
