@@ -51,7 +51,26 @@ Parameters:
       IAM Principal ARNs for the Bucket Policy
     Default: none
 
+  BucketSSMParameterName:
+    Type: String
+    Description: >-
+      Name of the SSM Parameter to create that stores
+      the Bucket name
+    Default: /codepipeline/bucket-name
+
+  KMSKeySSMParameterName:
+    Type: String
+    Description: >-
+      Name of the SSM Parameter to create that stores
+      the KMS Key ARN
+    Default: /codepipeline/kms-key-arn
+
 Conditions:
+
+  CreateKMSKey:
+    !Equals
+      - !Ref UseExistingKMSKey
+      - false
 
   UseExistingKMSKey:
     !Equals
@@ -126,6 +145,68 @@ Resources:
               Principal: !Ref CrossAccountPrincipals
             - !Ref AWS::NoValue
 
+  PipelineKMSKey:
+    Type: AWS::KMS::Key
+    Condition: CreateKMSKey
+    Properties:
+      Description: !Ref AWS::StackName
+      KeyPolicy:
+        Statement:
+          - Sid: Delegate Key Access to IAM
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action: kms:*
+            Resource: '*'
+          - !If
+            - IsOrganisationBucket
+            - Sid: !Sub Allow basic usage for ${OrganisationID}
+              Effect: Allow
+              Principal: '*'
+              Action:
+                - kms:DescribeKey
+                - kms:Encrypt
+                - kms:Decrypt
+                - kms:ReEncrypt*
+                - kms:GenerateDataKey
+                - kms:GenerateDataKeyWithoutPlaintext
+              Resource: '*'
+              Condition:
+                StringEquals:
+                  aws:PrincipalOrgID: !Ref OrganisationID
+            - !Ref AWS::NoValue
+          - !If
+            - IsCrossAccountBucket
+            - Sid: Allow basic usage for cross-account principals
+              Effect: Allow
+              Principal: !Ref CrossAccountPrincipals
+              Action:
+                - kms:DescribeKey
+                - kms:Encrypt
+                - kms:Decrypt
+                - kms:ReEncrypt*
+                - kms:GenerateDataKey
+                - kms:GenerateDataKeyWithoutPlaintext
+              Resource: '*'
+            - !Ref AWS::NoValue
+
+  BucketParameter:
+    Type: AWS::SSM::Parameter
+    Properties: 
+      Description: !Sub ${AWS::StackName} Bucket
+      Name: !Ref BucketSSMParameterName
+      Type: String
+      Value: !Ref PipelineBucket
+
+  KeyParameter:
+    Type: AWS::SSM::Parameter
+    Condition: CreateKMSKey
+    Properties: 
+      Description: !Sub ${AWS::StackName} KMS Key
+      Name: !Ref KMSKeySSMParameterName
+      Type: String
+      Value: !GetAtt PipelineKMSKey.Arn
+
 Outputs:
 
   PipelineBucket:
@@ -134,3 +215,7 @@ Outputs:
   PipelineBucketPolicy:
     Condition: RequiresBucketPolicy
     Value: !Ref PipelineBucketPolicy
+
+  PipelineKMSKey:
+    Condition: CreateKMSKey
+    Value: !GetAtt PipelineKMSKey.Arn
