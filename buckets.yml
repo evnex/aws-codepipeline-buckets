@@ -179,7 +179,8 @@ Resources:
             - IsCrossAccountBucket
             - Sid: Allow basic usage for cross-account principals
               Effect: Allow
-              Principal: !Ref CrossAccountPrincipals
+              Principal: 
+                AWS: !Ref CrossAccountPrincipals
               Action:
                 - kms:DescribeKey
                 - kms:Encrypt
